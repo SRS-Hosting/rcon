@@ -124,6 +124,27 @@ func TestExecuteRejectsBadPassword(t *testing.T) {
 	}
 }
 
+// TestExecuteReportsAuthHangupAsRejection covers servers that reject a password
+// by closing the connection instead of answering with id -1. Surfaced as a bare
+// EOF, that sends an operator hunting for a network problem; reported as
+// ErrAuthFailed, with the message hedged since the wire proves nothing, the
+// first thing checked is the password, which is almost always the fix.
+func TestExecuteReportsAuthHangupAsRejection(t *testing.T) {
+	client := serve(t, func(f *rcontest.Framer) {
+		// Read the auth packet and return without answering; the server closes
+		// the connection behind the handler, exactly as these servers do.
+		_, _ = f.Read()
+	}, 2*time.Second)
+
+	_, err := client.Execute(t.Context(), "PlayerInfoAll")
+	if !errors.Is(err, rcon.ErrAuthFailed) {
+		t.Fatalf("Execute error = %v, want ErrAuthFailed", err)
+	}
+	if !strings.Contains(err.Error(), "closed the connection") {
+		t.Errorf("error %q does not mention the connection being closed", err)
+	}
+}
+
 // TestExecuteReturnsPartialBodyOnTruncation is the degraded case that matters:
 // a server that stops answering mid-response must yield what did arrive, so the
 // count it reported can be compared against the records actually received.

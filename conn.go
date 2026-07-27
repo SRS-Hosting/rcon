@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -133,6 +134,18 @@ func (c *conn) authenticate(password string) error {
 	for range maxAuthPackets {
 		p, err := readPacket(c.br)
 		if err != nil {
+			// The spec's rejection is an auth response carrying id -1, but some
+			// servers, mostly older ones, just hang up after reading a bad
+			// password. A connection closed before any verdict arrived is
+			// therefore reported as a rejection, with the message hedged
+			// because the wire offers nothing to confirm it: a non-RCON
+			// endpoint that slams the door on the first packet looks exactly
+			// the same, and will now be reported this way too.
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) {
+				return fmt.Errorf(
+					"%w: the server closed the connection during authentication, which is how some servers reject a password",
+					ErrAuthFailed)
+			}
 			return fmt.Errorf("rcon: read auth response: %w", err)
 		}
 
