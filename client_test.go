@@ -293,6 +293,23 @@ func TestExecuteRejectsExcessConcurrency(t *testing.T) {
 	}
 }
 
+// TestExecuteErrorsCarryTheLibraryPrefix pins the contract that every error
+// leaving this package starts with "rcon: ", so consumers can attribute a
+// failure to the library without re-prefixing and stuttering. The dial failure
+// exercised here was one of the paths that used to escape without it.
+func TestExecuteErrorsCarryTheLibraryPrefix(t *testing.T) {
+	// Nothing listens on port 1, so the exchange fails at the connect step.
+	client := rcon.New("127.0.0.1:1", testPassword, rcon.WithTimeout(500*time.Millisecond))
+
+	_, err := client.Execute(t.Context(), "status")
+	if err == nil {
+		t.Fatal("Execute against a dead port returned no error")
+	}
+	if !strings.HasPrefix(err.Error(), "rcon: ") {
+		t.Errorf("error = %q, want it to start with the library prefix", err)
+	}
+}
+
 func TestExecuteHonoursCallerCancellation(t *testing.T) {
 	client := serve(t, stall, time.Minute)
 

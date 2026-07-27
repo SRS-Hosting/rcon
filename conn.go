@@ -73,12 +73,12 @@ func dialAndAuth(ctx context.Context, addr, password string, timeout time.Durati
 	var dialer net.Dialer
 	netConn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+		return nil, fmt.Errorf("rcon: connect to %s: %w", addr, err)
 	}
 
 	if err := netConn.SetDeadline(socketDeadline(ctx, timeout)); err != nil {
 		netConn.Close()
-		return nil, fmt.Errorf("set deadline on %s: %w", addr, err)
+		return nil, fmt.Errorf("rcon: set deadline on %s: %w", addr, err)
 	}
 
 	c := &conn{net: netConn, br: bufio.NewReader(netConn)}
@@ -133,7 +133,7 @@ func (c *conn) authenticate(password string) error {
 	for range maxAuthPackets {
 		p, err := readPacket(c.br)
 		if err != nil {
-			return fmt.Errorf("read auth response: %w", err)
+			return fmt.Errorf("rcon: read auth response: %w", err)
 		}
 
 		switch {
