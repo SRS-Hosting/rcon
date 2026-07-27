@@ -15,6 +15,30 @@ with no error to say it was cut. This client reassembles multi-packet responses,
 and when one is genuinely cut short it says so while still handing back what
 arrived.
 
+## Two ways a response gets split
+
+Both are handled for you; `Execute` returns the whole thing either way.
+
+The RCON protocol splits a body larger than one packet across several, and this
+client reassembles them. Separately, **Path of Titans caps a response at 4000
+characters** and pages the remainder, marking each page `[Page(Key 24) 1/5]` and
+serving the rest only when asked for by `Page:<key>-<index>`. This client follows
+that automatically, strips the markers, and joins the pages byte for byte, which
+matters because the split can fall mid-word.
+
+Two consequences worth planning for. A paged response costs one round trip per
+page against the game thread, so keep the timeout generous enough to cover them;
+the 10s default handles five pages comfortably. And the server holds pages only
+for `PageTimeout`, five seconds by default, so the pages are fetched back to back
+on the connection that is already open rather than dialling per page.
+
+A page that expires or stops matching before it is fetched comes back as
+`ErrTruncated` with the pages that did arrive, never silently as a shorter
+response. The marker format is the game's to change, though, and a changed
+marker is indistinguishable from an unpaged response, so a consumer that can
+cross-check the result against a count the server itself reports should keep
+doing so.
+
 ## Library
 
 ```go
@@ -48,10 +72,10 @@ kept apart rather than flattened into one failure:
 | Error | Meaning |
 |---|---|
 | `ErrBusy` | Every concurrent slot was taken. Backpressure; worth retrying. |
-| `ErrAuthFailed` | The server rejected the password. |
+| `ErrAuthFailed` | The server rejected the password, by verdict or by hanging up during auth. |
 | `ErrNotRCON` | Something answered, but not with RCON. Almost always a wrong port. |
 | `ErrCommandTooLong` | Over `MaxCommandLen`. Returned before dialling. |
-| `ErrTruncated` | The response was cut short. **Returned with the partial body.** |
+| `ErrTruncated` | The response was cut short, in transit or mid-pagination. **Returned with the partial body.** |
 | `ErrProtocol` | The response was not valid RCON framing. |
 | `*TimeoutError` | The exchange exceeded its deadline. Match with `errors.As`. |
 
@@ -101,7 +125,9 @@ echo status | rcon -a game:7779
 With a command it runs and exits, which is the form to use from scripts and
 container lifecycle hooks. With no command it reads one per line from standard
 input until end of input, prompting when that is a terminal, so it works
-interactively and in a pipeline without a flag to switch between them.
+interactively and in a pipeline without a flag to switch between them. Ctrl-C
+ends an interactive session as cleanly as typing `exit`; a second Ctrl-C
+force-kills a wedged one.
 
 Prefer `RCON_PASSWORD` over `--password`: an argument is visible to anyone who
 can read the process list.

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -391,5 +394,185 @@ func TestExecuteHonoursCallerCancellation(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("Execute waited %s, ignoring cancellation", elapsed)
+	}
+}
+
+// pagedHandler emulates the way Path of Titans splits a long response: it caps
+// each page at pageSize, prefixes the page marker, and serves later pages only
+// when asked for by key and index.
+func pagedHandler(password, full string, pageSize int) rcontest.Handler {
+	const key = 7
+	pages := []string{}
+	for rest := full; len(rest) > 0; {
+		n := min(pageSize, len(rest))
+		pages = append(pages, rest[:n])
+		rest = rest[n:]
+	}
+
+	return rcontest.Respond(password, 0, func(command string) string {
+		index := 1
+		if after, ok := strings.CutPrefix(command, fmt.Sprintf("Page:%d-", key)); ok {
+			parsed, err := strconv.Atoi(after)
+			if err != nil || parsed < 1 || parsed > len(pages) {
+				return "That page does not exist."
+			}
+			index = parsed
+		}
+		return fmt.Sprintf("[Page(Key %d) %d/%d]\n%s", key, index, len(pages), pages[index-1])
+	})
+}
+
+// TestExecuteFollowsGamePagination covers the second way a response can be
+// split. Packet reassembly is not enough on its own: Path of Titans caps a
+// response at 4000 characters and pages the rest, so a client that stopped at
+// page one would see a fraction of a busy server and have no way to tell.
+func TestExecuteFollowsGamePagination(t *testing.T) {
+	var full strings.Builder
+	for i := range 300 {
+		fmt.Fprintf(&full, "entry-%03d-padding-to-make-this-long\n", i)
+	}
+
+	client := serve(t, pagedHandler(testPassword, full.String(), 4000), 5*time.Second)
+
+	body, err := client.Execute(t.Context(), "ListQuests")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if body != full.String() {
+		t.Errorf("reassembled %d bytes, want %d", len(body), full.Len())
+	}
+	// The markers are the client's business, not the caller's.
+	if strings.Contains(body, "[Page(Key") {
+		t.Errorf("page markers leaked into the response:\n%s", body[:200])
+	}
+}
+
+// TestExecuteSinglePageHasNoMarker keeps the common short response untouched.
+func TestExecuteSinglePageHasNoMarker(t *testing.T) {
+	client := serve(t, pagedHandler(testPassword, "Total Players: 0.", 4000), 2*time.Second)
+
+	body, err := client.Execute(t.Context(), "PlayerInfoAll")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if body != "Total Players: 0." {
+		t.Errorf("body = %q", body)
+	}
+}
+
+// TestExecuteReportsExpiredPagesAsTruncation covers a page expiring before it
+// is asked for: the game holds pages only for PageTimeout and answers an
+// expired page with prose instead of a page. The prose must not be spliced
+// into the body as if it were data, and what did arrive must come back flagged
+// with ErrTruncated rather than passed off as the whole response.
+func TestExecuteReportsExpiredPagesAsTruncation(t *testing.T) {
+	client := serve(t, rcontest.Respond(testPassword, 0, func(command string) string {
+		if strings.HasPrefix(command, "Page:") {
+			return "That page does not exist."
+		}
+		return "[Page(Key 7) 1/3]\nfirst page only"
+	}), 2*time.Second)
+
+	body, err := client.Execute(t.Context(), "ListQuests")
+	if !errors.Is(err, rcon.ErrTruncated) {
+		t.Fatalf("Execute error = %v, want ErrTruncated", err)
+	}
+	if body != "first page only" {
+		t.Errorf("body = %q, want the page that did arrive with its marker stripped", body)
+	}
+}
+
+// TestExecutePageFollowingIsBounded guards the round-trip budget: every page is
+// a round trip against the game thread, so a server claiming an enormous page
+// count with next to nothing in each page must be cut off by the client rather
+// than paid one round trip per claimed page until the deadline.
+func TestExecutePageFollowingIsBounded(t *testing.T) {
+	var requests atomic.Int64
+	client := serve(t, rcontest.Respond(testPassword, 0, func(command string) string {
+		requests.Add(1)
+		if after, ok := strings.CutPrefix(command, "Page:7-"); ok {
+			return fmt.Sprintf("[Page(Key 7) %s/100000]\nx", after)
+		}
+		return "[Page(Key 7) 1/100000]\nx"
+	}), 5*time.Second)
+
+	_, err := client.Execute(t.Context(), "ListQuests")
+	if !errors.Is(err, rcon.ErrTruncated) {
+		t.Fatalf("Execute error = %v, want ErrTruncated", err)
+	}
+	if n := requests.Load(); n > 300 {
+		t.Errorf("server was asked %d times, want the follow loop bounded", n)
+	}
+}
+
+// TestExecuteRejectsMidSequenceFirstPage keeps a desynchronised exchange from
+// being presented as a complete response: a first reply marked as a later page
+// means earlier pages exist that were never seen.
+func TestExecuteRejectsMidSequenceFirstPage(t *testing.T) {
+	client := serve(t, rcontest.Respond(testPassword, 0, func(string) string {
+		return "[Page(Key 7) 3/5]\nlate fragment"
+	}), 2*time.Second)
+
+	body, err := client.Execute(t.Context(), "ListQuests")
+	if !errors.Is(err, rcon.ErrTruncated) {
+		t.Fatalf("Execute error = %v, want ErrTruncated", err)
+	}
+	if body != "late fragment" {
+		t.Errorf("body = %q, want the fragment with its marker stripped", body)
+	}
+}
+
+// TestExecuteStopsWhenPageKeyChanges pins the key check: a page carrying some
+// other exchange's key is not part of this response, and splicing it in would
+// corrupt the body with no error to say so.
+func TestExecuteStopsWhenPageKeyChanges(t *testing.T) {
+	client := serve(t, rcontest.Respond(testPassword, 0, func(command string) string {
+		if strings.HasPrefix(command, "Page:") {
+			return "[Page(Key 9) 2/2]\nsomebody else's page"
+		}
+		return "[Page(Key 7) 1/2]\nfirst"
+	}), 2*time.Second)
+
+	body, err := client.Execute(t.Context(), "ListQuests")
+	if !errors.Is(err, rcon.ErrTruncated) {
+		t.Fatalf("Execute error = %v, want ErrTruncated", err)
+	}
+	if body != "first" {
+		t.Errorf("body = %q, want only the page that belonged to this response", body)
+	}
+}
+
+// TestExecuteStripsMarkerFromTruncatedFirstPage keeps the page marker out of a
+// partial body: the marker is the client's business even when the response is
+// cut short before its sentinel.
+func TestExecuteStripsMarkerFromTruncatedFirstPage(t *testing.T) {
+	client := serve(t, func(f *rcontest.Framer) {
+		p, err := f.Read()
+		if err != nil {
+			return
+		}
+		if err := f.Write(rcontest.TypeAuthResponse, p.ID, ""); err != nil {
+			return
+		}
+		cmd, err := f.Read()
+		if err != nil {
+			return
+		}
+		if err := f.Write(rcontest.TypeResponseValue, cmd.ID, "[Page(Key 7) 1/9]\npartial "); err != nil {
+			return
+		}
+		if err := f.Write(rcontest.TypeResponseValue, cmd.ID, "data"); err != nil {
+			return
+		}
+		// Then never send the marker, so the client's deadline is what ends it.
+		stall(f)
+	}, 300*time.Millisecond)
+
+	body, err := client.Execute(t.Context(), "ListQuests")
+	if !errors.Is(err, rcon.ErrTruncated) {
+		t.Fatalf("Execute error = %v, want ErrTruncated", err)
+	}
+	if body != "partial data" {
+		t.Errorf("body = %q, want the partial body without its marker", body)
 	}
 }

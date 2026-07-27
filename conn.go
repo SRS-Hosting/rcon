@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -49,7 +51,9 @@ var ErrAuthFailed = errors.New("rcon: authentication failed, check the password"
 var ErrNotRCON = errors.New("rcon: the address is not an RCON server")
 
 // ErrTruncated reports that a response was cut short: the sentinel packet never
-// arrived before the deadline, or the response outgrew maxResponseBytes.
+// arrived before the deadline, the response outgrew maxResponseBytes, or the
+// game's own pagination could not be followed to the end because a page
+// expired, stopped matching, or there were too many of them.
 //
 // It is returned alongside the bytes that did arrive, because a partial response
 // is still worth having. What must not happen is a truncated response being read
@@ -190,11 +194,31 @@ func (c *conn) authenticate(password string) error {
 	return fmt.Errorf("%w: no authentication verdict after %d packets", ErrProtocol, maxAuthPackets)
 }
 
-// execute runs command and returns the reassembled response.
+// execute runs command and returns the complete response, following the game's
+// own pagination when it uses it.
+//
+// Two different things can split a response, and both are handled here so
+// callers see neither. The RCON protocol splits a large body across packets,
+// which exchange reassembles. On top of that, Path of Titans caps a response at
+// 4000 characters and pages the remainder, which is what collectPages follows.
 //
 // On truncation it returns what arrived along with ErrTruncated rather than
 // discarding it.
 func (c *conn) execute(command string) (string, error) {
+	body, err := c.exchange(command)
+	if err != nil {
+		// A first page cut short still carries the page marker, and the marker
+		// is this client's business even when the response is not whole.
+		if match := pageHeader.FindStringSubmatch(body); match != nil {
+			body = strings.TrimPrefix(body, match[0])
+		}
+		return body, err
+	}
+	return c.collectPages(body)
+}
+
+// exchange runs one command and reassembles its packets.
+func (c *conn) exchange(command string) (string, error) {
 	if err := writePacket(c.net, typeExecCommand, execID, command); err != nil {
 		return "", err
 	}
@@ -233,6 +257,84 @@ func (c *conn) execute(command string) (string, error) {
 			return body.String(), ErrTruncated
 		}
 	}
+}
+
+// pageHeader matches the prefix Path of Titans puts on a paged response, as in
+// "[Page(Key 24) 2/5]".
+//
+//nolint:gochecknoglobals // compiled once and never reassigned
+var pageHeader = regexp.MustCompile(`^\[Page\(Key (\d+)\) (\d+)/(\d+)\]\n?`)
+
+// maxPages bounds how many pages we will follow for one response. Full pages
+// hit the maxResponseBytes cap at about this count anyway; what this actually
+// bounds is a server claiming an enormous page count with next to nothing in
+// each page, where every page is a round trip the byte cap would never catch
+// and the deadline alone would end only after that many round trips.
+const maxPages = 256
+
+// collectPages follows the game's pagination to reassemble a full response.
+//
+// Responses over 4000 characters come back one page at a time, prefixed with a
+// key and a page number, and the remaining pages are fetched by asking for
+// "Page:<key>-<index>". The split is byte-exact and can fall mid-word, so pages
+// are joined with nothing between them.
+//
+// This matters more than it looks: a hundred-player PlayerInfoAll runs to
+// several pages, and a caller that read only the first would see a fifth of the
+// server and have no way to tell.
+//
+// The server holds pages only for its PageTimeout, five seconds by default, and
+// answers an expired or unknown page with prose instead of a page. Every reply
+// is therefore checked for the marker, the key, and the expected position
+// before it is believed: anything else ends the collection with ErrTruncated
+// and the pages that did arrive, because appending it would corrupt the body,
+// and returning it without an error would present a fraction of the response
+// as the whole of it.
+func (c *conn) collectPages(first string) (string, error) {
+	match := pageHeader.FindStringSubmatch(first)
+	if match == nil {
+		return first, nil
+	}
+
+	key, total := match[1], match[3]
+	var body strings.Builder
+	body.WriteString(strings.TrimPrefix(first, match[0]))
+
+	// A count too large to represent, or a first page that is not page one,
+	// means more of the response exists but cannot be collected from here.
+	pages, ok := positiveInt(total)
+	if !ok || match[2] != "1" {
+		return body.String(), ErrTruncated
+	}
+
+	for index := 2; index <= pages; index++ {
+		if index > maxPages {
+			return body.String(), ErrTruncated
+		}
+		// Fetched back to back on the connection that is already open: the pages
+		// are only held for PageTimeout, and dialling again per page would spend
+		// it.
+		page, perr := c.exchange(fmt.Sprintf("Page:%s-%d", key, index))
+		if perr != nil {
+			return body.String(), ErrTruncated
+		}
+		header := pageHeader.FindStringSubmatch(page)
+		if header == nil || header[1] != key || header[2] != strconv.Itoa(index) {
+			return body.String(), ErrTruncated
+		}
+		body.WriteString(strings.TrimPrefix(page, header[0]))
+
+		if body.Len() > maxResponseBytes {
+			return body.String(), ErrTruncated
+		}
+	}
+	return body.String(), nil
+}
+
+// positiveInt parses a count, reporting whether it was usable.
+func positiveInt(value string) (int, bool) {
+	parsed, err := strconv.Atoi(value)
+	return parsed, err == nil && parsed > 0
 }
 
 // isIncomplete reports whether err ended the response early rather than
