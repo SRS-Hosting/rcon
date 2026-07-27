@@ -1,5 +1,7 @@
 # rcon
 
+[![Release](https://github.com/USA-RedDragon/rcon/actions/workflows/release.yaml/badge.svg)](https://github.com/USA-RedDragon/rcon/actions/workflows/release.yaml) [![License](https://badgen.net/github/license/USA-RedDragon/rcon)](https://github.com/USA-RedDragon/rcon/blob/main/LICENSE) [![Release](https://img.shields.io/github/release/USA-RedDragon/rcon.svg)](https://github.com/USA-RedDragon/rcon/releases/) [![Coverage](.github/badges/coverage.svg)](https://github.com/USA-RedDragon/rcon/actions/workflows/test.yaml)
+
 A Source RCON client for Go, and a command-line tool built on it.
 
 ```sh
