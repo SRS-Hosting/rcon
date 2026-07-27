@@ -19,7 +19,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"time"
@@ -149,10 +148,12 @@ type result struct {
 // The entire exchange, connect, authenticate, send, receive, shares a single
 // deadline, the smaller of ctx and the configured timeout. The socket deadline
 // derived from that is the primary bound; the select below is what stops the
-// caller waiting past it, and closing the connection on timeout bounds how long
-// the abandoned goroutine can hold a socket open against the game server, which
-// would otherwise linger for roughly another full timeout after the caller
-// already gave up.
+// caller waiting past it. The connection watches ctx itself from the moment it
+// is dialled (see dialAndAuth) and closes on ctx.Done, so a goroutine
+// abandoned here, whether to the deadline or to an early cancellation, has its
+// blocked read fail immediately and releases its slot and socket promptly,
+// rather than holding both against the game server for up to another full
+// timeout after the caller already gave up.
 //
 // A response cut short still returns the part that arrived, paired with
 // ErrTruncated. Every other error returns an empty body.
@@ -178,14 +179,10 @@ func (c *Client) Execute(ctx context.Context, command string) (string, error) {
 	// Buffered so the goroutine can always deliver and exit, even once we have
 	// stopped listening.
 	ch := make(chan result, 1)
-	// Capacity 1 and a single send: the goroutine publishes the live connection
-	// so a timeout here can close it. Closing a net.Conn concurrently with a
-	// blocked read is safe and unblocks that read immediately.
-	connCh := make(chan io.Closer, 1)
 
 	go func() {
 		defer func() { <-c.slots }()
-		body, err := c.execute(ctx, command, connCh)
+		body, err := c.execute(ctx, command)
 		ch <- result{body: body, err: err}
 	}()
 
@@ -193,14 +190,8 @@ func (c *Client) Execute(ctx context.Context, command string) (string, error) {
 	case r := <-ch:
 		return r.body, r.err
 	case <-ctx.Done():
-		select {
-		case conn := <-connCh:
-			if err := conn.Close(); err != nil {
-				slog.Debug("close abandoned rcon connection", "addr", c.addr, "error", err)
-			}
-		default:
-			// Still dialing, which DialContext is already bounding by the same ctx.
-		}
+		// Nothing to clean up here: the goroutine's connection closes itself on
+		// this same ctx.Done and the goroutine exits on its own shortly after.
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", c.timedOut()
 		}
@@ -209,19 +200,20 @@ func (c *Client) Execute(ctx context.Context, command string) (string, error) {
 }
 
 // execute performs the blocking exchange. It is only ever called from the
-// goroutine started by Execute, and publishes its connection to connCh so that
-// Execute can close it out from under this goroutine on timeout.
-func (c *Client) execute(ctx context.Context, command string, connCh chan<- io.Closer) (string, error) {
+// goroutine started by Execute, and needs no supervision from it: dialAndAuth
+// arranges for the connection to close itself when ctx is done, which is what
+// unblocks the reads below once the caller has given up.
+func (c *Client) execute(ctx context.Context, command string) (string, error) {
 	conn, err := dialAndAuth(ctx, c.addr, c.password, c.timeout)
 	if err != nil {
-		if isTimeout(err) {
+		// net.ErrClosed means the connection's own ctx watcher shut the socket
+		// mid-auth, so it stands for the deadline or cancellation that fired it
+		// and is reported the same way as the deadline itself.
+		if isTimeout(err) || errors.Is(err, net.ErrClosed) {
 			return "", c.timedOut()
 		}
 		return "", err
 	}
-	// dialAndAuth has already authenticated, so publishing here cannot shorten
-	// the auth step; the socket deadline covers that. A double Close is harmless.
-	connCh <- conn
 	defer func() {
 		if cerr := conn.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
 			slog.Debug("close rcon connection", "addr", c.addr, "error", cerr)

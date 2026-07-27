@@ -61,6 +61,10 @@ var ErrTruncated = errors.New("rcon: response truncated before the end-of-respon
 type conn struct {
 	net net.Conn
 	br  *bufio.Reader
+	// stop retires the ctx watcher installed by dialAndAuth, so a finished
+	// exchange does not leave the watcher parked until the caller's context
+	// finally winds down.
+	stop func() bool
 }
 
 // dialAndAuth opens a connection to addr and authenticates it.
@@ -70,6 +74,14 @@ type conn struct {
 // step, so a server that answers every step just inside it could outlast the
 // caller's budget in aggregate; one absolute deadline cannot be stretched that
 // way.
+//
+// The deadline only bounds time, though. A caller that cancels ctx outright is
+// honoured by DialContext and then, without more, ignored until the deadline
+// fires, with the reader blocked and the socket held for the duration. So the
+// connection also watches ctx for its whole lifetime, starting before the auth
+// exchange, and closes itself the moment ctx is done, which fails any blocked
+// read at once. This cannot pre-empt the truncation margin in socketDeadline:
+// that margin puts the socket deadline before ctx.Done, never after it.
 func dialAndAuth(ctx context.Context, addr, password string, timeout time.Duration) (*conn, error) {
 	var dialer net.Dialer
 	netConn, err := dialer.DialContext(ctx, "tcp", addr)
@@ -77,12 +89,14 @@ func dialAndAuth(ctx context.Context, addr, password string, timeout time.Durati
 		return nil, fmt.Errorf("rcon: connect to %s: %w", addr, err)
 	}
 
+	stop := context.AfterFunc(ctx, func() { netConn.Close() })
+	c := &conn{net: netConn, br: bufio.NewReader(netConn), stop: stop}
+
 	if err := netConn.SetDeadline(socketDeadline(ctx, timeout)); err != nil {
-		netConn.Close()
+		c.Close()
 		return nil, fmt.Errorf("rcon: set deadline on %s: %w", addr, err)
 	}
 
-	c := &conn{net: netConn, br: bufio.NewReader(netConn)}
 	if err := c.authenticate(password); err != nil {
 		c.Close()
 		return nil, err
@@ -90,9 +104,13 @@ func dialAndAuth(ctx context.Context, addr, password string, timeout time.Durati
 	return c, nil
 }
 
-// Close releases the connection. It is safe to call concurrently with a blocked
-// read, which is how Execute abandons a timed-out exchange.
+// Close releases the connection and retires its ctx watcher. It is safe to
+// call concurrently with a blocked read, and safe whichever side wins the race
+// with the watcher: stopping a watcher that has already run does nothing, and
+// closing a connection the watcher already closed just reports net.ErrClosed,
+// which callers tolerate.
 func (c *conn) Close() error {
+	c.stop()
 	return c.net.Close()
 }
 

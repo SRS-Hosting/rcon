@@ -331,6 +331,51 @@ func TestExecuteErrorsCarryTheLibraryPrefix(t *testing.T) {
 	}
 }
 
+// TestExecuteFreesSlotPromptlyOnCancellation guards against a slot leak: a
+// caller that cancelled while the server stalled the auth exchange used to
+// leave the goroutine blocked in the auth read until the socket deadline
+// fired, holding its slot and socket for nearly the full configured timeout.
+// With one slot, a single cancelled call turned every call after it into
+// ErrBusy for that whole window. The connection now closes itself on ctx.Done,
+// so the slot must come free shortly after the cancellation. The two second
+// bound is generous headroom over the instant it should take, while still well
+// short of when the five second timeout would have released it.
+func TestExecuteFreesSlotPromptlyOnCancellation(t *testing.T) {
+	srv, err := rcontest.New(stall)
+	if err != nil {
+		t.Fatalf("start fake server: %v", err)
+	}
+	t.Cleanup(srv.Close)
+
+	client := rcon.New(srv.Addr(), testPassword,
+		rcon.WithTimeout(5*time.Second), rcon.WithMaxConcurrent(1))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	if _, err := client.Execute(ctx, "PlayerInfoAll"); err == nil {
+		t.Fatal("Execute returned no error after cancellation")
+	}
+
+	// Any outcome other than ErrBusy means the slot came free: the poll itself
+	// then just times out its short budget against the still-stalled server.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		pollCtx, pollCancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		_, err := client.Execute(pollCtx, "PlayerInfoAll")
+		pollCancel()
+		if !errors.Is(err, rcon.ErrBusy) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("slot still held 2s after cancellation")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestExecuteHonoursCallerCancellation(t *testing.T) {
 	client := serve(t, stall, time.Minute)
 
