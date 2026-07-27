@@ -1,0 +1,146 @@
+---
+version: 2
+
+project_name: rcon
+
+release:
+  extra_files:
+    - glob: ./LICENSE
+  github:
+    owner: USA-RedDragon
+    name: rcon
+
+dockers:
+  - image_templates:
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-amd64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-amd64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/usa-reddragon/rcon:latest-amd64"
+    use: buildx
+    goarch: amd64
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.url=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - "--platform=linux/amd64"
+  - image_templates:
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-armv7"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-armv7"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-armv7"
+      - "ghcr.io/usa-reddragon/rcon:latest-armv7"
+    use: buildx
+    goarch: arm
+    goarm: "7"
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.url=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - "--platform=linux/arm/v7"
+  - image_templates:
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-armv6"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-armv6"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-armv6"
+      - "ghcr.io/usa-reddragon/rcon:latest-armv6"
+    use: buildx
+    goarch: arm
+    goarm: "6"
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.url=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - "--platform=linux/arm/v6"
+  - image_templates:
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-arm64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-arm64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/usa-reddragon/rcon:latest-arm64"
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.url=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/usa-reddragon/rcon:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-amd64"
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-arm64"
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-armv6"
+      - "ghcr.io/usa-reddragon/rcon:{{ .Tag }}-armv7"
+  - name_template: "ghcr.io/usa-reddragon/rcon:v{{ .Major }}"
+    image_templates:
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-amd64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-arm64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-armv6"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}-armv7"
+  - name_template: "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-armv6"
+      - "ghcr.io/usa-reddragon/rcon:v{{ .Major }}.{{ .Minor }}-armv7"
+  - name_template: "ghcr.io/usa-reddragon/rcon:latest"
+    image_templates:
+      - "ghcr.io/usa-reddragon/rcon:latest-amd64"
+      - "ghcr.io/usa-reddragon/rcon:latest-arm64"
+      - "ghcr.io/usa-reddragon/rcon:latest-armv6"
+      - "ghcr.io/usa-reddragon/rcon:latest-armv7"
+
+builds:
+  - main: ./cmd/rcon
+    binary: rcon
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm
+      - arm64
+      - riscv64
+      - mips
+    goarm:
+      - "6"
+      - "7"
+    gomips:
+      - "softfloat"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: riscv64
+      - goos: windows
+        goarch: mips
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+
+milestones:
+  - close: true
