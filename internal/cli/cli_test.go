@@ -2,9 +2,11 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/rcon/internal/cli"
 	"github.com/USA-RedDragon/rcon/rcontest"
@@ -188,6 +190,44 @@ func TestExitOnStdinKeyword(t *testing.T) {
 	if code != cli.ExitOK {
 		t.Errorf("exit = %d, want %d (stderr: %s)", code, cli.ExitOK, stderr)
 	}
+}
+
+// TestCancelEndsBlockedRead is the Ctrl-C path: the reader blocks in Read with
+// no way to interrupt it, so cancelling the context has to end the session on
+// its own rather than wait for one more line that will never come.
+func TestCancelEndsBlockedRead(t *testing.T) {
+	srv := serve(t, testPassword, "ok")
+	t.Chdir(t.TempDir())
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	done := make(chan int, 1)
+	go func() {
+		var out, errOut bytes.Buffer
+		done <- cli.RunForTest(ctx, []string{"-a", srv.Addr(), "-p", testPassword}, blockedReader{}, &out, &errOut)
+	}()
+
+	select {
+	case code := <-done:
+		// Non-terminal input is piped mode, where a run cut short must exit
+		// nonzero.
+		if code != cli.ExitFailure {
+			t.Errorf("exit = %d, want %d", code, cli.ExitFailure)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunForTest still blocked 2s after its context was cancelled")
+	}
+}
+
+// blockedReader blocks in Read forever, the way a terminal with nobody typing
+// does.
+type blockedReader struct{}
+
+func (blockedReader) Read([]byte) (int, error) {
+	<-make(chan struct{})
+	return 0, nil
 }
 
 // TestPasswordFromEnvironment is the form that keeps the secret off the process

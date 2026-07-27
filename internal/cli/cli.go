@@ -214,6 +214,7 @@ func once(cmd *cobra.Command, client *rcon.Client, command string) error {
 // This is also what makes `echo status | rcon -a ...` work, so a pipeline needs
 // no special handling.
 func interactive(cmd *cobra.Command, client *rcon.Client) error {
+	ctx := cmd.Context()
 	in := cmd.InOrStdin()
 	out := cmd.OutOrStdout()
 	prompt := isTerminal(in)
@@ -222,16 +223,55 @@ func interactive(cmd *cobra.Command, client *rcon.Client) error {
 		fmt.Fprintf(out, "Connected to %s. Type a command, or exit.\n", client.Addr())
 	}
 
-	scanner := bufio.NewScanner(in)
+	// Scan blocks in Read with no way to interrupt it, so a signal that cancels
+	// the context would otherwise leave the session stuck at the prompt until
+	// one more line arrived. A goroutine does the reading and the loop watches
+	// the context alongside it. When the context ends first, the goroutine stays
+	// blocked in Read until the process exits; that leak is fine, because
+	// exiting is exactly what has been decided.
+	type scanResult struct {
+		line string
+		err  error
+	}
+	results := make(chan scanResult)
+	go func() {
+		defer close(results)
+		scanner := bufio.NewScanner(in)
+		for scanner.Scan() {
+			results <- scanResult{line: scanner.Text()}
+		}
+		if err := scanner.Err(); err != nil {
+			results <- scanResult{err: err}
+		}
+	}()
+
 	for {
 		if prompt {
 			fmt.Fprint(out, "> ")
 		}
-		if !scanner.Scan() {
-			break
+
+		var command string
+		select {
+		case <-ctx.Done():
+			if prompt {
+				// Ending a session with Ctrl-C is as deliberate as typing exit, so it
+				// is not a failure. The newline moves the shell's next prompt off the
+				// "> " line.
+				fmt.Fprintln(out)
+				return nil
+			}
+			// Piped input is a script; a run cut short must not exit 0.
+			return ctx.Err()
+		case res, ok := <-results:
+			if !ok {
+				return nil
+			}
+			if res.err != nil {
+				return fmt.Errorf("read commands: %w", res.err)
+			}
+			command = strings.TrimSpace(res.line)
 		}
 
-		command := strings.TrimSpace(scanner.Text())
 		switch command {
 		case "":
 			continue
@@ -239,7 +279,7 @@ func interactive(cmd *cobra.Command, client *rcon.Client) error {
 			return nil
 		}
 
-		output, err := client.Execute(cmd.Context(), command)
+		output, err := client.Execute(ctx, command)
 		writeOutput(cmd, output)
 		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), prefixed(err))
@@ -250,11 +290,6 @@ func interactive(cmd *cobra.Command, client *rcon.Client) error {
 			}
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read commands: %w", err)
-	}
-	return nil
 }
 
 func writeOutput(cmd *cobra.Command, output string) {
