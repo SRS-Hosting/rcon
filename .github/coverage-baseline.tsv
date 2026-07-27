@@ -1,6 +1,6 @@
 client.go	52	49
 cmd/rcon/main.go	4	0
-conn.go	57	44
+conn.go	57	45
 internal/cli/cli.go	84	70
 internal/config/config.go	28	28
 packet.go	23	19
