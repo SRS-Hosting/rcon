@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/USA-RedDragon/rcon"
-	"github.com/USA-RedDragon/rcon/rcontest"
+	"github.com/SRS-Hosting/rcon"
+	"github.com/SRS-Hosting/rcon/rcontest"
 )
 
 func TestNewDefaults(t *testing.T) {

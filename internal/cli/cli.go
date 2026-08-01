@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/SRS-Hosting/rcon"
+	"github.com/SRS-Hosting/rcon/internal/config"
 	"github.com/USA-RedDragon/configulator"
-	"github.com/USA-RedDragon/rcon"
-	"github.com/USA-RedDragon/rcon/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )

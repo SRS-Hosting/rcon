@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/USA-RedDragon/rcon/internal/cli"
-	"github.com/USA-RedDragon/rcon/rcontest"
+	"github.com/SRS-Hosting/rcon/internal/cli"
+	"github.com/SRS-Hosting/rcon/rcontest"
 )
 
 const testPassword = "swordfish"

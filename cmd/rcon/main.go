@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/USA-RedDragon/rcon/internal/cli"
+	"github.com/SRS-Hosting/rcon/internal/cli"
 )
 
 // Stamped by the release build; see .goreleaser.yml.

@@ -1,4 +1,4 @@
-module github.com/USA-RedDragon/rcon
+module github.com/SRS-Hosting/rcon
 
 go 1.26.0
 
