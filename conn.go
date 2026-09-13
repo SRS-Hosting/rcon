@@ -19,9 +19,10 @@ import (
 //
 // execID and sentinelID are the whole reassembly mechanism: a response larger
 // than one packet arrives as several, with nothing in any of them saying which
-// is last. So the command goes out as execID and is followed immediately by an
-// empty command as sentinelID. The server answers in order, so the reply
-// carrying sentinelID is proof that every execID packet has already arrived.
+// is last. So the command goes out as execID and, once the server has started
+// answering it, is followed by an empty command as sentinelID. The server
+// answers in order, so the reply carrying sentinelID is proof that every execID
+// packet has already arrived.
 const (
 	authID     int32 = 1
 	execID     int32 = 2
@@ -222,13 +223,9 @@ func (c *conn) exchange(command string) (string, error) {
 	if err := writePacket(c.net, typeExecCommand, execID, command); err != nil {
 		return "", err
 	}
-	// Queued immediately behind the real command so the server has both before it
-	// starts answering either.
-	if err := writePacket(c.net, typeExecCommand, sentinelID, ""); err != nil {
-		return "", err
-	}
 
 	var body strings.Builder
+	sentinelSent := false
 	for {
 		p, err := readPacket(c.br)
 		if err != nil {
@@ -255,6 +252,23 @@ func (c *conn) exchange(command string) (string, error) {
 		body.WriteString(p.body)
 		if body.Len() > maxResponseBytes {
 			return body.String(), ErrTruncated
+		}
+
+		// Held back until the server has answered, rather than queued straight
+		// behind the command. Minecraft takes each request from a single socket
+		// read and hangs up if that read holds anything but one whole packet, so
+		// a sentinel that lands before it reads the command costs the exchange.
+		// A reply means the command is already off the wire, and a server that
+		// handles commands in order has queued the whole of its response before
+		// it reads the sentinel, which is all the sentinel needs.
+		if !sentinelSent {
+			if err := writePacket(c.net, typeExecCommand, sentinelID, ""); err != nil {
+				// The response has started but its end can no longer be confirmed,
+				// which is the truncated case whatever broke the write.
+				slog.Debug("send rcon end-of-response marker", "error", err)
+				return body.String(), ErrTruncated
+			}
+			sentinelSent = true
 		}
 	}
 }

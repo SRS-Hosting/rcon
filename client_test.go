@@ -397,6 +397,72 @@ func TestExecuteHonoursCallerCancellation(t *testing.T) {
 	}
 }
 
+// minecraftHandler emulates the vanilla Minecraft RCON server, whose reader is
+// stricter than the protocol: it takes each request from one socket read of at
+// most 1460 bytes and hangs up unless that read holds exactly one whole packet.
+// Two packets that reach it together are fatal to the connection, not merely
+// read out of order.
+//
+// Each read waits settle first. Against a real server the coalescing is a race,
+// lost only when the client's next packet lands before the RCON thread gets
+// back to the socket; waiting makes it lose every time, so a client that
+// pipelines packets fails here deterministically rather than now and then.
+func minecraftHandler(password string, settle time.Duration, fn func(command string) string) rcontest.Handler {
+	return func(f *rcontest.Framer) {
+		buf := make([]byte, 1460)
+		authed := false
+		for {
+			time.Sleep(settle)
+			n, err := f.Conn().Read(buf)
+			if err != nil || n < 14 || binary.LittleEndian.Uint32(buf) != uint32(n-4) { //nolint:gosec // n <= len(buf)
+				return
+			}
+			id := int32(binary.LittleEndian.Uint32(buf[4:8]))   //nolint:gosec // signed on the wire
+			typ := int32(binary.LittleEndian.Uint32(buf[8:12])) //nolint:gosec // signed on the wire
+			body := strings.TrimRight(string(buf[12:n]), "\x00")
+
+			switch {
+			case typ == rcontest.TypeAuth && body == password:
+				authed = true
+				err = f.Write(rcontest.TypeAuthResponse, id, "")
+			case typ == rcontest.TypeAuth:
+				authed = false
+				err = f.Write(rcontest.TypeAuthResponse, rcontest.AuthFailedID, "")
+			case typ == rcontest.TypeExecCommand && authed:
+				err = f.Write(rcontest.TypeResponseValue, id, fn(body))
+			default:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+// TestExecuteWorksAgainstMinecraft covers a server that cannot take two packets
+// in one read. Sending the end-of-response marker straight behind the command
+// let the two coalesce, and Minecraft answers that by closing the connection,
+// so commands failed with a bare EOF whenever the marker beat the RCON thread
+// to the socket.
+func TestExecuteWorksAgainstMinecraft(t *testing.T) {
+	client := serve(t, minecraftHandler(testPassword, 20*time.Millisecond, func(command string) string {
+		if command == "save-all" {
+			return "Saving the game (this may take a moment!)\nSaved the game"
+		}
+		// Minecraft runs the empty marker as a command like any other.
+		return "Unknown or incomplete command, see below for error"
+	}), 2*time.Second)
+
+	body, err := client.Execute(t.Context(), "save-all")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if body != "Saving the game (this may take a moment!)\nSaved the game" {
+		t.Errorf("body = %q", body)
+	}
+}
+
 // pagedHandler emulates the way Path of Titans splits a long response: it caps
 // each page at pageSize, prefixes the page marker, and serves later pages only
 // when asked for by key and index.
