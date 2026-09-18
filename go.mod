@@ -1,6 +1,6 @@
 module github.com/SRS-Hosting/rcon
 
-go 1.26.0
+go 1.27.1
 
 require (
 	github.com/USA-RedDragon/configulator v0.0.5
