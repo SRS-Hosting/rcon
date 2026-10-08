@@ -12,7 +12,7 @@ import (
 
 	"github.com/SRS-Hosting/rcon"
 	"github.com/SRS-Hosting/rcon/internal/config"
-	"github.com/USA-RedDragon/configulator"
+	"github.com/USA-RedDragon/configulator/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
