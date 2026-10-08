@@ -86,13 +86,22 @@ jobs:
   backend-unit-tests-coverage:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       checks: write
       pull-requests: write
 
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AUTO_COMMIT_APP_ID }}
+          private-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -102,10 +111,14 @@ jobs:
 
       - name: Unit tests
         run: |
-          env CGO_ENABLED=0 go test -v ./... -coverprofile coverage.out -coverpkg=./... -covermode atomic
+          env CGO_ENABLED=0 go test -v ./... -coverprofile coverage.raw -coverpkg=./... -covermode atomic
+          grep -v -e '_configulator\.go:' coverage.raw > coverage.out
 
       - name: Report coverage
         if: always()
-        uses: USA-RedDragon/reusable-actions/coverage@c7f24b7a3dc1110838186b173b1f1a2a65ff1c91 # v2.0.22
+        uses: USA-RedDragon/reusable-actions/coverage@764c7aee28d4145c8b84d8c550727a6924a96c7e # v2.0.25
         with:
           file: coverage.out
+          token: ${{ steps.app-token.outputs.token }}
+          git-user-name: usa-reddragon-auto-commit-bot[bot]
+          git-user-email: usa-reddragon-auto-commit-bot[bot]@users.noreply.github.com
