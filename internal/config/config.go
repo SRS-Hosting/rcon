@@ -29,18 +29,15 @@ const maxPort = 65535
 // the deployed command line passes a single host:port, while the sibling
 // services are configured with RCON_HOST and RCON_PORT separately. Supporting
 // both means one environment configures all of them; Address wins when set.
+//
+// The short flags are the ones the deployed command line already uses, so
+// changing them breaks existing callers.
 type Config struct {
-	Address string `name:"address" description:"address of the RCON server as host:port; overrides host and port"`
-	Host    string `name:"host" default:"127.0.0.1" description:"hostname or IP of the RCON server"`
-	// Ports and timeouts are plain ints rather than sized types: configulator
-	// assigns YAML numbers through reflection without a range check, so a
-	// narrower field would silently wrap 70000 to 4464 and -1 to 65535 where an
-	// int lets Validate reject both.
-	Port     int    `name:"port" default:"27015" description:"TCP port of the RCON server"`
-	Password string `name:"password" secret:"true" description:"RCON password; prefer the environment variable over an argument"`
-	// Expressed in seconds rather than as a time.Duration because configulator
-	// parses integer fields with strconv, so a "10s" default would not load.
-	TimeoutSeconds int `name:"timeoutSeconds" default:"10" description:"deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response"`
+	Address        string `name:"address" short:"a" description:"address of the RCON server as host:port; overrides host and port"`
+	Host           string `name:"host" short:"H" default:"127.0.0.1" description:"hostname or IP of the RCON server"`
+	Port           int    `name:"port" short:"P" default:"27015" description:"TCP port of the RCON server"`
+	Password       string `name:"password" short:"p" secret:"true" description:"RCON password; prefer the environment variable over an argument"`
+	TimeoutSeconds int    `name:"timeoutSeconds" default:"10" description:"deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response"`
 }
 
 // Addr returns the address to connect to.

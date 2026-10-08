@@ -11,6 +11,7 @@ import (
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
 	"github.com/spf13/pflag"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -31,7 +32,7 @@ func ConfigSchema() *configulator.Schema[Config] {
 		DecodeFile:    configDecodeFile,
 	}
 }
-func configApplyDefaults(cfg *Config, set configulator.SetOrigin) error {
+func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) error {
 	cfg.Host = "127.0.0.1"
 	set("host", configulator.LayerDefault, "default tag")
 	cfg.Port = 27015
@@ -40,7 +41,7 @@ func configApplyDefaults(cfg *Config, set configulator.SetOrigin) error {
 	set("timeoutSeconds", configulator.LayerDefault, "default tag")
 	return nil
 }
-func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, set configulator.SetOrigin, file string) error {
+func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, sep string, set configulator.SetOrigin, file string) error {
 	var sh configShadow
 	if err := u(data, &sh); err != nil {
 		return &configulator.DecodeError{
@@ -48,9 +49,9 @@ func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, set co
 			Path: file,
 		}
 	}
-	return sh.applyTo(cfg, set, file)
+	return sh.applyTo(cfg, sep, set, file)
 }
-func (s *configShadow) applyTo(cfg *Config, set configulator.SetOrigin, file string) error {
+func (s *configShadow) applyTo(cfg *Config, sep string, set configulator.SetOrigin, file string) error {
 	if s.Address != nil {
 		cfg.Address = *s.Address
 		set("address", configulator.LayerFile, file)
@@ -133,19 +134,31 @@ func ConfigPFlagHooks() cpflag.Hooks[Config] {
 	}
 }
 func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
-	for _, name := range []string{strings.Join([]string{"address"}, o.Separator), strings.Join([]string{"host"}, o.Separator), strings.Join([]string{"port"}, o.Separator), strings.Join([]string{"password"}, o.Separator), strings.Join([]string{"timeoutSeconds"}, o.Separator)} {
-		if fs.Lookup(name) != nil {
-			return fmt.Errorf("flag --%s already registered on this FlagSet", name)
+	names := []string{strings.Join([]string{"address"}, o.Separator), strings.Join([]string{"host"}, o.Separator), strings.Join([]string{"port"}, o.Separator), strings.Join([]string{"password"}, o.Separator), strings.Join([]string{"timeoutSeconds"}, o.Separator)}
+	shorts := []string{"a", "H", "P", "p", ""}
+	for i, name := range names {
+		if fs.Lookup(name) != nil || slices.Contains(names[:i], name) {
+			return &configulator.FlagConflictError{
+				Existing: name,
+				Flag:     name,
+			}
+		}
+		if s := shorts[i]; s != "" && fs.ShorthandLookup(s) != nil {
+			return &configulator.FlagConflictError{
+				Existing:  fs.ShorthandLookup(s).Name,
+				Flag:      name,
+				Shorthand: s,
+			}
 		}
 	}
-	fs.String(strings.Join([]string{"address"}, o.Separator), "", "address of the RCON server as host:port; overrides host and port")
-	fs.String(strings.Join([]string{"host"}, o.Separator), "127.0.0.1", "hostname or IP of the RCON server")
-	fs.Int(strings.Join([]string{"port"}, o.Separator), 27015, "TCP port of the RCON server")
-	fs.String(strings.Join([]string{"password"}, o.Separator), "", "RCON password; prefer the environment variable over an argument")
-	fs.Int(strings.Join([]string{"timeoutSeconds"}, o.Separator), 10, "deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response")
+	fs.StringP(names[0], "a", "", "address of the RCON server as host:port; overrides host and port")
+	fs.StringP(names[1], "H", "127.0.0.1", "hostname or IP of the RCON server")
+	fs.IntP(names[2], "P", 27015, "TCP port of the RCON server")
+	fs.StringP(names[3], "p", "", "RCON password; prefer the environment variable over an argument")
+	fs.Int(names[4], 10, "deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response")
 	return nil
 }
-func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, set configulator.SetOrigin) error {
+func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep string, set configulator.SetOrigin) error {
 	if n := strings.Join([]string{"address"}, o.Separator); fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {

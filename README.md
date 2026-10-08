@@ -1,6 +1,6 @@
 # rcon
 
-[![Release](https://github.com/SRS-Hosting/rcon/actions/workflows/release.yaml/badge.svg)](https://github.com/SRS-Hosting/rcon/actions/workflows/release.yaml) [![License](https://badgen.net/github/license/SRS-Hosting/rcon)](https://github.com/SRS-Hosting/rcon/blob/main/LICENSE) [![Release](https://img.shields.io/github/release/SRS-Hosting/rcon.svg)](https://github.com/SRS-Hosting/rcon/releases/) [![Coverage](.github/badges/coverage.svg)](https://github.com/SRS-Hosting/rcon/actions/workflows/test.yaml)
+[![Release](https://github.com/SRS-Hosting/rcon/actions/workflows/release.yaml/badge.svg)](https://github.com/SRS-Hosting/rcon/actions/workflows/release.yaml) [![License](https://badgen.net/github/license/SRS-Hosting/rcon)](https://github.com/SRS-Hosting/rcon/blob/main/LICENSE) [![Release](https://img.shields.io/github/release/SRS-Hosting/rcon.svg)](https://github.com/SRS-Hosting/rcon/releases/) [![Coverage](https://raw.githubusercontent.com/SRS-Hosting/rcon/main/.github/badges/coverage.svg)](https://github.com/SRS-Hosting/rcon/actions/workflows/test.yaml)
 
 A Source RCON client for Go, and a command-line tool built on it.
 

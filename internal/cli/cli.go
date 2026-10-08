@@ -16,7 +16,6 @@ import (
 	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // Exit codes. These are a contract: a container lifecycle hook branches on
@@ -38,20 +37,6 @@ const (
 	// anything that only checks for zero treats it as the failure it might be.
 	ExitTruncated = 3
 )
-
-// shorthands are the single-letter forms the deployed command line already uses.
-//
-// configulator derives flag names from the config struct and has no way to
-// express a shorthand, so they are grafted on after registration rather than
-// invented here. Changing these breaks existing callers.
-//
-//nolint:gochecknoglobals // a lookup table, never reassigned
-var shorthands = map[string]string{
-	"address":  "a",
-	"password": "p",
-	"host":     "H",
-	"port":     "P",
-}
 
 // usageError marks a problem with the invocation rather than with the exchange,
 // so Main can exit ExitUsage without treating every failure as misuse.
@@ -97,31 +82,6 @@ Exit codes: 0 success, 1 the command did not complete, 2 bad invocation,
 	return cmd
 }
 
-// RegisterFlags binds cfg's flags onto cmd, adding the shorthands the deployed
-// command line depends on.
-//
-// configulator registers into its own flag set, and the Flag values it creates
-// are pointers, so adding those same pointers to the command means one parse
-// updates both views. That is what lets the shorthands be attached here while
-// configulator stays the thing that actually reads them.
-func RegisterFlags(cmd *cobra.Command, loader *configulator.Configulator[config.Config]) error {
-	set := pflag.NewFlagSet("config", pflag.ContinueOnError)
-	cpflag.Bind(loader, set, config.ConfigPFlagHooks(), nil)
-
-	var errs []error
-	set.VisitAll(func(f *pflag.Flag) {
-		if short, ok := shorthands[f.Name]; ok {
-			if f.Shorthand != "" && f.Shorthand != short {
-				errs = append(errs, fmt.Errorf("flag %s already has shorthand %q", f.Name, f.Shorthand))
-				return
-			}
-			f.Shorthand = short
-		}
-		cmd.Flags().AddFlag(f)
-	})
-	return errors.Join(errs...)
-}
-
 // MainContext runs the CLI and returns the process exit code.
 func MainContext(ctx context.Context, version, commit string) int {
 	return execute(ctx, New(version, commit))
@@ -130,8 +90,8 @@ func MainContext(ctx context.Context, version, commit string) int {
 // execute wires configuration onto cmd, runs it, and turns the outcome into an
 // exit code.
 func execute(ctx context.Context, cmd *cobra.Command) int {
-	// WithFile before RegisterFlags, because configulator only adds the
-	// --config flag when it knows there is a file to look for.
+	// WithFile before Bind, because configulator only adds the --config flag
+	// when it knows there is a file to look for.
 	loader := configulator.New(config.ConfigSchema()).
 		WithEnvironmentVariables(&configulator.EnvironmentVariableOptions{
 			Prefix:    config.EnvPrefix,
@@ -141,11 +101,7 @@ func execute(ctx context.Context, cmd *cobra.Command) int {
 			Search:   []string{"config.yaml"},
 			Decoders: configulator.Decoders{".yaml": yaml.Unmarshal, ".yml": yaml.Unmarshal},
 		})
-
-	if err := RegisterFlags(cmd, loader); err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), prefixed(err))
-		return ExitUsage
-	}
+	cpflag.Bind(loader, cmd.Flags(), config.ConfigPFlagHooks(), nil)
 	cmd.SetContext(loader.WithContext(ctx))
 
 	err := cmd.Execute()
