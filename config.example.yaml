@@ -1,4 +1,4 @@
-# Sample configuration for Config.
+# Sample configuration
 # address of the RCON server as host:port; overrides host and port
 # address: ""
 # hostname or IP of the RCON server

@@ -5,22 +5,26 @@
 package config
 
 import (
-	jsontext "encoding/json/jsontext"
-	v2 "encoding/json/v2"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
-	configulator "github.com/USA-RedDragon/configulator/v2"
-	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
-	"github.com/spf13/pflag"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/USA-RedDragon/configulator/v2"
+	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
+	"github.com/USA-RedDragon/configulator/v2/impl"
+	"github.com/spf13/pflag"
 )
 
 type configShadow struct {
-	Address        *string `json:"address" toml:"address" yaml:"address"`
-	Host           *string `json:"host" toml:"host" yaml:"host"`
-	Port           *int    `json:"port" toml:"port" yaml:"port"`
-	Password       *string `json:"password" toml:"password" yaml:"password"`
+	Address        *string `json:"address"        toml:"address"        yaml:"address"`
+	Host           *string `json:"host"           toml:"host"           yaml:"host"`
+	Port           *int    `json:"port"           toml:"port"           yaml:"port"`
+	Password       *string `json:"password"       toml:"password"       yaml:"password"`
 	TimeoutSeconds *int    `json:"timeoutSeconds" toml:"timeoutSeconds" yaml:"timeoutSeconds"`
 }
 
@@ -32,7 +36,8 @@ func ConfigSchema() *configulator.Schema[Config] {
 		DecodeFile:    configDecodeFile,
 	}
 }
-func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) error {
+
+func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) error {
 	cfg.Host = "127.0.0.1"
 	set("host", configulator.LayerDefault, "default tag")
 	cfg.Port = 27015
@@ -41,6 +46,7 @@ func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) er
 	set("timeoutSeconds", configulator.LayerDefault, "default tag")
 	return nil
 }
+
 func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, sep string, set configulator.SetOrigin, file string) error {
 	var sh configShadow
 	if err := u(data, &sh); err != nil {
@@ -51,7 +57,8 @@ func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, sep st
 	}
 	return sh.applyTo(cfg, sep, set, file)
 }
-func (s *configShadow) applyTo(cfg *Config, sep string, set configulator.SetOrigin, file string) error {
+
+func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin, file string) error {
 	if s.Address != nil {
 		cfg.Address = *s.Address
 		set("address", configulator.LayerFile, file)
@@ -74,54 +81,45 @@ func (s *configShadow) applyTo(cfg *Config, sep string, set configulator.SetOrig
 	}
 	return nil
 }
+
 func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.SetOrigin) error {
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "address"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Address = v
-			set("address", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "address"); ok {
+		cfg.Address = v
+		set("address", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "host"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Host = v
-			set("host", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "host"); ok {
+		cfg.Host = v
+		set("host", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "port"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "port",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "port"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "port",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Port = int(p)
-			set("port", configulator.LayerEnv, n)
 		}
+		cfg.Port = int(p)
+		set("port", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "password"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Password = v
-			set("password", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "password"); ok {
+		cfg.Password = v
+		set("password", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "timeoutSeconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "timeoutSeconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "timeoutSeconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "timeoutSeconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.TimeoutSeconds = int(p)
-			set("timeoutSeconds", configulator.LayerEnv, n)
 		}
+		cfg.TimeoutSeconds = int(p)
+		set("timeoutSeconds", configulator.LayerEnv, n)
 	}
 	return nil
 }
@@ -133,33 +131,49 @@ func ConfigPFlagHooks() cpflag.Hooks[Config] {
 		Register: configRegisterPFlags,
 	}
 }
-func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
-	names := []string{strings.Join([]string{"address"}, o.Separator), strings.Join([]string{"host"}, o.Separator), strings.Join([]string{"port"}, o.Separator), strings.Join([]string{"password"}, o.Separator), strings.Join([]string{"timeoutSeconds"}, o.Separator)}
+
+func configRegisterPFlags(fs *pflag.FlagSet, _ *cpflag.Options) error {
+	names := []string{
+		"address",
+		"host",
+		"port",
+		"password",
+		"timeoutSeconds",
+	}
 	shorts := []string{"a", "H", "P", "p", ""}
 	for i, name := range names {
-		if fs.Lookup(name) != nil || slices.Contains(names[:i], name) {
+		if f := fs.Lookup(name); f != nil {
+			return &configulator.FlagConflictError{
+				Existing: f.Name,
+				Flag:     name,
+			}
+		}
+		if slices.Contains(names[:i], name) {
 			return &configulator.FlagConflictError{
 				Existing: name,
 				Flag:     name,
 			}
 		}
-		if s := shorts[i]; s != "" && fs.ShorthandLookup(s) != nil {
-			return &configulator.FlagConflictError{
-				Existing:  fs.ShorthandLookup(s).Name,
-				Flag:      name,
-				Shorthand: s,
+		if s := shorts[i]; s != "" {
+			if f := fs.ShorthandLookup(s); f != nil {
+				return &configulator.FlagConflictError{
+					Existing:  f.Name,
+					Flag:      name,
+					Shorthand: s,
+				}
 			}
 		}
 	}
 	fs.StringP(names[0], "a", "", "address of the RCON server as host:port; overrides host and port")
 	fs.StringP(names[1], "H", "127.0.0.1", "hostname or IP of the RCON server")
-	fs.IntP(names[2], "P", 27015, "TCP port of the RCON server")
+	fs.VarP(impl.NewInt(27015), names[2], "P", "TCP port of the RCON server")
 	fs.StringP(names[3], "p", "", "RCON password; prefer the environment variable over an argument")
-	fs.Int(names[4], 10, "deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response")
+	fs.Var(impl.NewInt(10), names[4], "deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response")
 	return nil
 }
-func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep string, set configulator.SetOrigin) error {
-	if n := strings.Join([]string{"address"}, o.Separator); fs.Changed(n) {
+
+func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, _ *cpflag.Options, _ string, set configulator.SetOrigin) error {
+	if n := "address"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -171,7 +185,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Address = v
 		set("address", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"host"}, o.Separator); fs.Changed(n) {
+	if n := "host"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -183,7 +197,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Host = v
 		set("host", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"port"}, o.Separator); fs.Changed(n) {
+	if n := "port"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -195,7 +209,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Port = v
 		set("port", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"password"}, o.Separator); fs.Changed(n) {
+	if n := "password"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -207,7 +221,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Password = v
 		set("password", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"timeoutSeconds"}, o.Separator); fs.Changed(n) {
+	if n := "timeoutSeconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -221,35 +235,36 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 	}
 	return nil
 }
+
 func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	tok, err := dec.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
+	if tok.Kind() != jsontext.KindBeginObject {
+		return fmt.Errorf("expected an object, got %v", tok.Kind())
 	}
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "address":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Address = &str
 			default:
-				return fmt.Errorf("address: expected a string, got %v", v.Kind())
+				return configJSONError("address", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "host":
 			v, err := dec.ReadToken()
@@ -257,12 +272,12 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Host = &str
 			default:
-				return fmt.Errorf("host: expected a string, got %v", v.Kind())
+				return configJSONError("host", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "port":
 			v, err := dec.ReadToken()
@@ -270,29 +285,41 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError("port", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError("port", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Port = &num
+			default:
+				return configJSONError("port", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "password":
+			if err := func() error {
+				v, err := dec.ReadToken()
 				if err != nil {
 					return err
 				}
-				val := int(num)
-				s.Port = &val
-			default:
-				return fmt.Errorf("port: expected a number, got %v", v.Kind())
-			}
-		case "password":
-			v, err := dec.ReadToken()
-			if err != nil {
-				return err
-			}
-			switch v.Kind() {
-			case 'n':
-			case '"':
-				str := v.String()
-				s.Password = &str
-			default:
-				return fmt.Errorf("password: expected a string, got %v", v.Kind())
+				switch v.Kind() {
+				case jsontext.KindNull:
+				case jsontext.KindString:
+					str := v.String()
+					s.Password = &str
+				default:
+					return configJSONError("password", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+				}
+				return nil
+			}(); err != nil {
+				return &configulator.ParseError{
+					Err:   errors.New("invalid value"),
+					Path:  "password",
+					Value: "(redacted)",
+				}
 			}
 		case "timeoutSeconds":
 			v, err := dec.ReadToken()
@@ -300,34 +327,58 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError("timeoutSeconds", v, err)
 				}
-				val := int(num)
-				s.TimeoutSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError("timeoutSeconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.TimeoutSeconds = &num
 			default:
-				return fmt.Errorf("timeoutSeconds: expected a number, got %v", v.Kind())
+				return configJSONError("timeoutSeconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*configShadow)(nil)
+var _ json.UnmarshalerFrom = (*configShadow)(nil)
+
+// configJSONError returns a ParseError for the JSON token v at path.
+func configJSONError(path string, v jsontext.Token, err error) error {
+	return &configulator.ParseError{
+		Err:   err,
+		Path:  path,
+		Value: v.String(),
+	}
+}
 
 // PrintConfig renders every field as "path = value" lines, redacting
 // fields tagged secret:"true". The origin Report holds no values,
 // so this is the only place redaction happens.
-func (c *Config) PrintConfig() string {
+func (c Config) PrintConfig() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("address = %v\n", c.Address))
-	b.WriteString(fmt.Sprintf("host = %v\n", c.Host))
-	b.WriteString(fmt.Sprintf("port = %v\n", c.Port))
+	fmt.Fprintf(&b, "address = %v\n", c.Address)
+	fmt.Fprintf(&b, "host = %v\n", c.Host)
+	fmt.Fprintf(&b, "port = %v\n", c.Port)
 	b.WriteString("password = (redacted)\n")
-	b.WriteString(fmt.Sprintf("timeoutSeconds = %v\n", c.TimeoutSeconds))
+	fmt.Fprintf(&b, "timeoutSeconds = %v\n", c.TimeoutSeconds)
 	return b.String()
+}
+
+func configQuoteKey(k string) string {
+	if strings.ContainsAny(k, ".[") {
+		return "\"" + strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(k) + "\""
+	}
+	return k
 }
