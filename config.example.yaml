@@ -1,0 +1,11 @@
+# Sample configuration for Config.
+# address of the RCON server as host:port; overrides host and port
+# address: ""
+# hostname or IP of the RCON server
+host: "127.0.0.1"
+# TCP port of the RCON server
+port: 27015
+# RCON password; prefer the environment variable over an argument
+# password: "(secret)"
+# deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response
+timeoutSeconds: 10
