@@ -12,7 +12,9 @@ import (
 
 	"github.com/SRS-Hosting/rcon"
 	"github.com/SRS-Hosting/rcon/internal/config"
-	"github.com/USA-RedDragon/configulator"
+	"github.com/USA-RedDragon/configulator/v2"
+	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
+	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -104,7 +106,7 @@ Exit codes: 0 success, 1 the command did not complete, 2 bad invocation,
 // configulator stays the thing that actually reads them.
 func RegisterFlags(cmd *cobra.Command, loader *configulator.Configulator[config.Config]) error {
 	set := pflag.NewFlagSet("config", pflag.ContinueOnError)
-	loader.WithPFlags(set, nil)
+	cpflag.Bind(loader, set, config.ConfigPFlagHooks(), nil)
 
 	var errs []error
 	set.VisitAll(func(f *pflag.Flag) {
@@ -130,12 +132,15 @@ func MainContext(ctx context.Context, version, commit string) int {
 func execute(ctx context.Context, cmd *cobra.Command) int {
 	// WithFile before RegisterFlags, because configulator only adds the
 	// --config flag when it knows there is a file to look for.
-	loader := configulator.New[config.Config]().
+	loader := configulator.New(config.ConfigSchema()).
 		WithEnvironmentVariables(&configulator.EnvironmentVariableOptions{
 			Prefix:    config.EnvPrefix,
 			Separator: "_",
 		}).
-		WithFile(&configulator.FileOptions{Paths: []string{"config.yaml"}})
+		WithFile(&configulator.FileOptions{
+			Search:   []string{"config.yaml"},
+			Decoders: configulator.Decoders{".yaml": yaml.Unmarshal, ".yml": yaml.Unmarshal},
+		})
 
 	if err := RegisterFlags(cmd, loader); err != nil {
 		fmt.Fprintln(cmd.ErrOrStderr(), prefixed(err))

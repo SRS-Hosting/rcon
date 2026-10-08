@@ -1,6 +1,8 @@
 // Package config is the rcon command's configuration.
 package config
 
+//go:generate go tool configulator -type Config
+
 import (
 	"errors"
 	"fmt"
@@ -35,7 +37,7 @@ type Config struct {
 	// narrower field would silently wrap 70000 to 4464 and -1 to 65535 where an
 	// int lets Validate reject both.
 	Port     int    `name:"port" default:"27015" description:"TCP port of the RCON server"`
-	Password string `name:"password" description:"RCON password; prefer the environment variable over an argument"`
+	Password string `name:"password" secret:"true" description:"RCON password; prefer the environment variable over an argument"`
 	// Expressed in seconds rather than as a time.Duration because configulator
 	// parses integer fields with strconv, so a "10s" default would not load.
 	TimeoutSeconds int `name:"timeoutSeconds" default:"10" description:"deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response"`
