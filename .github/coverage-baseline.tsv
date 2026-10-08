@@ -1,7 +1,7 @@
-client.go	47	46
-cmd/rcon/main.go	5	0
-conn.go	92	79
-internal/cli/cli.go	98	81
-internal/config/config.go	28	28
-packet.go	23	19
-rcontest/rcontest.go	93	78
+client.go	57	56
+cmd/rcon/main.go	13	0
+conn.go	105	91
+internal/cli/cli.go	125	108
+internal/config/config.go	30	30
+packet.go	47	43
+rcontest/rcontest.go	106	92
