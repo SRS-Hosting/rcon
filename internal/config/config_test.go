@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	portField    = "port"
+	timeoutField = "timeoutSeconds"
+	gameAddress  = "game:7779"
+)
+
 func valid() Config {
 	return Config{Host: "127.0.0.1", Port: 27015, Password: "secret", TimeoutSeconds: 10}
 }
@@ -33,13 +39,13 @@ func TestValidateRangeChecks(t *testing.T) {
 		mutef func(*Config)
 		want  string
 	}{
-		{"port too high", func(c *Config) { c.Port = 70000 }, "port"},
-		{"port negative", func(c *Config) { c.Port = -1 }, "port"},
-		{"port zero", func(c *Config) { c.Port = 0 }, "port"},
+		{"port too high", func(c *Config) { c.Port = 70000 }, portField},
+		{"port negative", func(c *Config) { c.Port = -1 }, portField},
+		{"port zero", func(c *Config) { c.Port = 0 }, portField},
 		{"no host", func(c *Config) { c.Host = "" }, "host"},
-		{"timeout zero", func(c *Config) { c.TimeoutSeconds = 0 }, "timeoutSeconds"},
-		{"timeout negative", func(c *Config) { c.TimeoutSeconds = -1 }, "timeoutSeconds"},
-		{"timeout too high", func(c *Config) { c.TimeoutSeconds = 86400 }, "timeoutSeconds"},
+		{"timeout zero", func(c *Config) { c.TimeoutSeconds = 0 }, timeoutField},
+		{"timeout negative", func(c *Config) { c.TimeoutSeconds = -1 }, timeoutField},
+		{"timeout too high", func(c *Config) { c.TimeoutSeconds = 86400 }, timeoutField},
 		{"address without port", func(c *Config) { c.Address = "127.0.0.1" }, "host:port"},
 		{"address without host", func(c *Config) { c.Address = ":27015" }, "no host"},
 		{"address with word port", func(c *Config) { c.Address = "host:rcon" }, "non-numeric port"},
@@ -64,7 +70,7 @@ func TestValidateRangeChecks(t *testing.T) {
 // TestValidateIgnoresHostAndPortWhenAddressIsSet keeps the defaults for the
 // fields Address replaces from being reported as problems.
 func TestValidateIgnoresHostAndPortWhenAddressIsSet(t *testing.T) {
-	cfg := Config{Address: "game:7779", Port: 0, TimeoutSeconds: 10}
+	cfg := Config{Address: gameAddress, Port: 0, TimeoutSeconds: 10}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("address-only config rejected: %v", err)
 	}
@@ -78,8 +84,8 @@ func TestAddr(t *testing.T) {
 
 	// Address wins, so a single host:port can override the pair the sibling
 	// services set in the environment.
-	cfg.Address = "game:7779"
-	if got := cfg.Addr(); got != "game:7779" {
+	cfg.Address = gameAddress
+	if got := cfg.Addr(); got != gameAddress {
 		t.Errorf("Addr() with Address set = %q", got)
 	}
 

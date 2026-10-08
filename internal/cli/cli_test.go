@@ -12,7 +12,10 @@ import (
 	"github.com/SRS-Hosting/rcon/rcontest"
 )
 
-const testPassword = "swordfish"
+const (
+	testPassword  = "swordfish"
+	statusCommand = "status"
+)
 
 // run invokes the CLI the way a shell would and reports what a caller sees.
 func run(t *testing.T, stdin string, args ...string) (code int, stdout, stderr string) {
@@ -109,9 +112,9 @@ func TestUsageErrorsExitTwo(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"address without a port", []string{"-a", "127.0.0.1", "status"}, "host:port"},
-		{"unknown flag", []string{"--bogus", "status"}, "unknown flag"},
-		{"timeout out of range", []string{"-a", "h:1", "--timeoutSeconds", "0", "status"}, "timeoutSeconds"},
+		{"address without a port", []string{"-a", "127.0.0.1", statusCommand}, "host:port"},
+		{"unknown flag", []string{"--bogus", statusCommand}, "unknown flag"},
+		{"timeout out of range", []string{"-a", "h:1", "--timeoutSeconds", "0", statusCommand}, "timeoutSeconds"},
 	}
 
 	for _, tc := range tests {
@@ -133,7 +136,7 @@ func TestUsageErrorsExitTwo(t *testing.T) {
 func TestErrorsAreNotStuttered(t *testing.T) {
 	srv := serve(t, "a-different-password", "unreachable")
 
-	_, _, stderr := run(t, "", "-a", srv.Addr(), "-p", testPassword, "status")
+	_, _, stderr := run(t, "", "-a", srv.Addr(), "-p", testPassword, statusCommand)
 
 	if strings.Contains(stderr, "rcon: rcon:") { //nolint:dupword // the repetition is what is being detected
 		t.Errorf("stderr stutters: %q", stderr)
@@ -240,7 +243,7 @@ func TestPasswordFromEnvironment(t *testing.T) {
 	t.Setenv("RCON_ADDRESS", srv.Addr())
 
 	var out, errOut bytes.Buffer
-	code := cli.RunForTest(t.Context(), []string{"status"}, strings.NewReader(""), &out, &errOut)
+	code := cli.RunForTest(t.Context(), []string{statusCommand}, strings.NewReader(""), &out, &errOut)
 
 	if code != cli.ExitOK {
 		t.Fatalf("exit = %d, want %d (stderr: %s)", code, cli.ExitOK, errOut.String())
@@ -262,7 +265,7 @@ func TestHostAndPortFromEnvironment(t *testing.T) {
 	t.Setenv("RCON_PASSWORD", testPassword)
 
 	var out, errOut bytes.Buffer
-	code := cli.RunForTest(t.Context(), []string{"status"}, strings.NewReader(""), &out, &errOut)
+	code := cli.RunForTest(t.Context(), []string{statusCommand}, strings.NewReader(""), &out, &errOut)
 
 	if code != cli.ExitOK {
 		t.Fatalf("exit = %d, want %d (stderr: %s)", code, cli.ExitOK, errOut.String())
@@ -279,7 +282,7 @@ func TestFlagBeatsEnvironment(t *testing.T) {
 	t.Setenv("RCON_PASSWORD", testPassword)
 
 	var out, errOut bytes.Buffer
-	code := cli.RunForTest(t.Context(), []string{"-a", srv.Addr(), "status"}, strings.NewReader(""), &out, &errOut)
+	code := cli.RunForTest(t.Context(), []string{"-a", srv.Addr(), statusCommand}, strings.NewReader(""), &out, &errOut)
 
 	if code != cli.ExitOK {
 		t.Fatalf("exit = %d, want %d (stderr: %s)", code, cli.ExitOK, errOut.String())
