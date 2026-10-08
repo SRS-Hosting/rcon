@@ -141,18 +141,16 @@ overriding the last. Environment variables carry an `RCON_` prefix, matching the
 names the sibling services already use, so one environment configures all of
 them.
 
-Short flags: `-a` address, `-H` host, `-P` port, `-p` password, `-c` config
-file (default `config.yaml`). [config.example.yaml](config.example.yaml) lists
-every setting.
+[config.example.yaml](config.example.yaml) lists every setting.
 
 <!-- configulator:begin -->
 
 | Key              | Type    | Default     | Environment           | Flag               | Description                                                                                  |
 |------------------|---------|-------------|-----------------------|--------------------|----------------------------------------------------------------------------------------------|
-| `address`        | string  |             | `RCON_ADDRESS`        | `--address`        | address of the RCON server as host:port; overrides host and port                             |
-| `host`           | string  | `127.0.0.1` | `RCON_HOST`           | `--host`           | hostname or IP of the RCON server                                                            |
-| `port`           | integer | `27015`     | `RCON_PORT`           | `--port`           | TCP port of the RCON server                                                                  |
-| `password`       | string  |             | `RCON_PASSWORD`       | `--password`       | RCON password; prefer the environment variable over an argument (secret)                     |
+| `address`        | string  |             | `RCON_ADDRESS`        | `-a`, `--address`  | address of the RCON server as host:port; overrides host and port                             |
+| `host`           | string  | `127.0.0.1` | `RCON_HOST`           | `-H`, `--host`     | hostname or IP of the RCON server                                                            |
+| `port`           | integer | `27015`     | `RCON_PORT`           | `-P`, `--port`     | TCP port of the RCON server                                                                  |
+| `password`       | string  |             | `RCON_PASSWORD`       | `-p`, `--password` | RCON password; prefer the environment variable over an argument (secret)                     |
 | `timeoutSeconds` | integer | `10`        | `RCON_TIMEOUTSECONDS` | `--timeoutSeconds` | deadline in seconds covering a whole RCON exchange: connect, authenticate, command, response |
 
 <!-- configulator:end -->
