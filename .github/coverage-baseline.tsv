@@ -1,4 +1,4 @@
-client.go	47	46
+client.go	47	45
 cmd/rcon/main.go	5	0
 conn.go	96	82
 internal/cli/cli.go	85	72
